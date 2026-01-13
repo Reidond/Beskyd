@@ -1,0 +1,13 @@
+{
+  "name": "beskyd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  }
+}
