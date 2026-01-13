@@ -63,13 +63,13 @@ The dissertation uses the concept of decision makers (ОПР). For implementatio
 
 Role support is implemented in Phase 2/3.
 
-### 1.3 Outputs
+### 1.3 Outputs (Expanded)
 
 For each region (and/or set of regions) the platform outputs:
 
-- **riskIndex**: normalized quantitative risk indicator in **[0, 1]**
-- **riskLabel**: linguistic classification (`very_low`, `low`, `medium`, `high`, `very_high`)
-- **diagnostics/explanations**: intermediate values and rule activations to support transparency
+- **riskIndex**: normalized **safety** index in **[0, 1]** (higher = safer; `1.0` is minimal risk)
+- **riskLabel**: linguistic **risk** classification derived from `riskIndex` (default bins: `[0,0.2)` very_high, `[0.2,0.4)` high, `[0.4,0.6)` medium, `[0.6,0.8)` low, `[0.8,1]` very_low)
+- **diagnostics/explanations**: raw intermediate values for each region (group terms, individual risk terms, `δ/ϕ/m_S/ω/μ_R`) to support transparency
 
 ### 1.4 In-scope vs out-of-scope
 
@@ -208,7 +208,7 @@ Export goals:
 - Zero IO
 - Pure computations
 
-### 4.4 Library public API (proposed)
+### 4.4 Library public API (Expanded)
 
 ```ts
 export type RegionId = string;
@@ -220,46 +220,77 @@ export type RiskLabel =
   | "high"
   | "very_high";
 
+export type GroupTerm = "T1" | "T2" | "T3" | "T4" | "T5";
+export type IndividualRiskTerm = "L" | "BA" | "A" | "AA" | "H";
+
+export type ExpertSafetyLevel =
+  | "low"
+  | "below_average"
+  | "average"
+  | "above_average"
+  | "high";
+
 export interface RiskModelConfig {
-  // Linguistic token → numeric rank (domain-specific)
+  // Linguistic token → numeric rank (higher = safer).
+  // Default: { l1:1, l2:2, l3:3, l4:4, l5:5 }
   linguisticScale: Record<string, number>;
 
-  // Label cutoffs for normalized risk index
+  // Criteria groups and their criterion keys (configurable).
+  // Default: infrastructure K1-K5, socioEcological K6-K12, medical K13-K17.
+  criteriaGroups: Record<string, string[]>;
+
+  // Label cutoffs for normalized safety index (riskIndex)
   thresholds: {
-    veryLowMax: number;
-    lowMax: number;
-    mediumMax: number;
-    highMax: number;
+    veryHighMax: number; // default 0.2
+    highMax: number; // default 0.4
+    mediumMax: number; // default 0.6
+    lowMax: number; // default 0.8
   };
 
-  // Optional weights for criteria/groups (future extension)
-  weights?: Record<string, number>;
+  // Expert safety label → numeric scale (0..100 default).
+  expertScale: {
+    breakpoints: [number, number, number, number, number, number]; // default [0,20,40,60,80,100]
+    labelToUpperBound: Record<ExpertSafetyLevel, number>; // low->20 ... high->100
+  };
+
+  // Optional weights (default: all 1.0)
+  weights?: {
+    participants?: Record<string, number>;
+    groups?: Record<string, number>;
+  };
 }
 
 export interface ParticipantAssessment {
   participantId: string;
   regionId: RegionId;
 
-  infrastructure: Record<string, string>;
-  socioEcological: Record<string, string>;
-  medical: Record<string, string>;
-
-  repeatVisit: number; // normalized [0,1]
+  // Group -> criterion -> linguistic token (positive safety statements).
+  criteria: Record<string, Record<string, string>>;
 }
 
 export interface ExpertRegionAssessment {
   regionId: RegionId;
-  safetyLevel: string;
+  safetyLevel: ExpertSafetyLevel; // Δ1–Δ5 label
 }
 
 export interface RegionRiskResult {
   regionId: RegionId;
-  riskIndex: number; // [0,1]
+  riskIndex: number; // [0,1], higher = safer (μ_R)
   riskLabel: RiskLabel;
   diagnostics: {
     sampleSize: number;
-    senseOfSafety?: number;
-    intermediate?: Record<string, unknown>;
+    perParticipant: Record<string, {
+      groupSums: Record<string, number>; // θ_g
+      groupTerms: Record<string, GroupTerm>; // T_g
+      individualRiskTerm: IndividualRiskTerm; // r*(e)
+    }>;
+    deltaRisk: number; // δ(R)
+    phiRisk: number; // ϕ(R)
+    repeatVisit: number; // Ξ(R)
+    senseOfSafety: number; // m_S(R)
+    expertSafetyLevel: ExpertSafetyLevel; // Δ(R)
+    omega: number; // ω(R)
+    muR: number; // μ_R(R)
   };
 }
 
@@ -267,6 +298,7 @@ export interface ComputeRiskInput {
   config: RiskModelConfig;
   participants: ParticipantAssessment[];
   experts: ExpertRegionAssessment[];
+  repeatVisitByRegion: Record<RegionId, number>; // Ξ in [0,1]
 }
 
 export function computeRegionRisk(input: ComputeRiskInput): RegionRiskResult[];
@@ -275,29 +307,78 @@ export function computeRegionRisk(input: ComputeRiskInput): RegionRiskResult[];
 Notes:
 
 - The library should also expose **lower-level** pure helpers:
-  - membership functions (triangular/trapezoidal/s-shaped, etc)
+  - membership functions (Z-spline, conical, S-shaped)
   - label mapping function
   - clamping and normalization
 
-### 4.5 Algorithm structure (module view)
+### 4.5 Algorithm structure (Expanded)
 
-The dissertation’s safety-risk platform is structured as an information module plus analytical modules across levels.
+The safety-risk model uses **positive safety statements** for criteria (higher numeric value = safer). The pipeline is deterministic and IO-free.
 
-Implementation must support the following conceptual steps:
+1. **Group term evaluation** (per participant, per group)
+   - Map each linguistic token `l1..l5` to numeric `τ` using `linguisticScale`.
+   - For each group `g` with `m_g` criteria, compute: `θ_g(e) = Σ τ_gi`.
+   - Characteristic mapping to group term `T_g`:
+     - `T1` if `θ_g < m_g`
+     - `T2` if `m_g ≤ θ_g < 2 m_g`
+     - `T3` if `2 m_g ≤ θ_g < 3 m_g`
+     - `T4` if `3 m_g ≤ θ_g < 4 m_g`
+     - `T5` if `θ_g ≥ 4 m_g`
 
-1. **Group term evaluation** of criteria (linguistic → numeric → characteristic mapping)
-2. **Individual-level** aggregation of personal safety risk
-3. **Regional-level** aggregation combining generalized risk + repeat-visit intention into “sense of safety”
-4. **Final risk** combining sense-of-safety with expert regional safety level
+2. **Individual-level aggregation** (`r*(e)`) using explicit rules
+   - Rule set (use the counts of `T_g` across groups):
+     - If `T5 ≥ 1` and `T4 ≥ 2` → `L` (low risk)
+     - If `T5 ≥ 1` and `T4 ≥ 1` and `T3 ≥ 1` → `BA` (below average risk)
+     - If `T4 ≥ 1` and `T3 ≥ 1` and `T2 ≥ 1` → `A` (average risk)
+     - If `T3 ≥ 2` and `T2 ≥ 1` → `AA` (above average risk)
+     - Otherwise → `H` (high risk)
 
-### 4.6 Testing requirements
+3. **Regional aggregation**
+   - Map `r*(e)` to numeric `χ(e)` using defaults: `L=15, BA=30, A=50, AA=80, H=100`.
+   - Compute regional risk: `δ(R) = Σ (χ(e) * w_e) / Σ w_e` (default `w_e = 1`).
+   - Normalize with Z-spline (defaults from article):
+     - `ϕ(R) = 1` if `δ ≤ 60`
+     - `ϕ(R) = 1 - ((δ-60)^2)/800` if `60 < δ ≤ 80`
+     - `ϕ(R) = ((100-δ)^2)/800` if `80 < δ < 100`
+     - `ϕ(R) = 0` if `δ ≥ 100`
+
+4. **Repeat-visit intention**
+   - `Ξ(R)` is a **per-region input** in `[0,1]`, representing repeat-visit forecast.
+
+5. **Sense of safety** (regional)
+   - Conical membership (defaults from article):
+     - `m_S(R) = 1 - 0.5 * sqrt((ϕ(R)-1)^2 + (Ξ(R)-1)^2)`
+   - Clamp to `[0,1]`.
+
+6. **Final risk with expert safety level (Δ)**
+   - `Δ(R)` is a single label per region (decision maker input).
+   - Default numeric mapping: `low=20`, `below_average=40`, `average=60`, `above_average=80`, `high=100`.
+   - Compute `ω(R) = a_i * m_S(R)` based on `Δ(R)`’s mapped value `a_i`.
+   - Normalize with S-shaped membership:
+     - `μ_R = 0` if `ω ≤ a1`
+     - `μ_R = 2 * ((ω-a1)/(a6-a1))^2` if `a1 < ω ≤ (a1+a6)/2`
+     - `μ_R = 1 - 2 * ((a6-ω)/(a6-a1))^2` if `(a1+a6)/2 < ω < a6`
+     - `μ_R = 1` if `ω ≥ a6`
+     - Defaults: `a1=0`, `a6=100` (configurable).
+   - `riskIndex = μ_R` (higher = safer).
+
+7. **Risk label mapping**
+   - Default thresholds: `[0.2, 0.4, 0.6, 0.8]` (configurable).
+   - `riskLabel` mapping:
+     - `[0,0.2)` → `very_high`
+     - `[0.2,0.4)` → `high`
+     - `[0.4,0.6)` → `medium`
+     - `[0.6,0.8)` → `low`
+     - `[0.8,1]` → `very_low`
+
+### 4.6 Testing requirements (Expanded)
 
 Phase 1 tests must include:
 
 - **Unit tests** for:
   - linguistic token mapping
   - characteristic functions
-  - membership functions
+  - membership functions (Z-spline, conical, S-shaped)
   - each computation stage
 
 - **Invariants / properties**:
@@ -311,7 +392,10 @@ Phase 1 tests must include:
     - Oct–Dec 2023
     - regions: Zakarpattia / Lviv / Ivano-Frankivsk
     - 16 thematic blocks, 320 questions
-  - Do **not** store personal data.
+  - Base schema on `docs/expert_evaluation.xlsx` (columns `K1..K17`) without storing personal data.
+  - Default group mapping: `K1–K5` infra, `K6–K12` socio-ecological, `K13–K17` medical.
+  - Use repeat-visit example values for fixtures: `Ξ(R1)=0.85`, `Ξ(R2)=0.78`, `Ξ(R3)=0.88`.
+  - Add a golden test that reproduces the article’s sample outputs for μ_R (≈0.86, 0.82, 0.41) using the provided Δ labels.
 
 ### 4.7 Definition of done (Phase 1)
 
@@ -408,3 +492,8 @@ Entities:
 - **MB:** Model Base (library)
 - **KB:** Knowledge Base (config/parameters)
 - **DB:** Data Base (stored inputs/outputs)
+
+## 9. Open questions (Added)
+
+- **Repeat-visit source (Ξ):** docs provide example values but no derivation; Phase 1 treats it as explicit per-region input. Confirm how Ξ should be sourced in Phase 2/3.
+- **Full fuzzy rule base:** only the five explicit `r*(e)` rules from the article are implemented; confirm whether a broader Mamdani rule base is required later.
