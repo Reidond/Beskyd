@@ -15,5 +15,5 @@ bun.lockb
 Thumbs.db
 
 # IDE
-.vscode/
 .idea/
+.sisyphus/

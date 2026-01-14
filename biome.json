@@ -16,24 +16,16 @@
     "formatter": {
       "quoteStyle": "double",
       "jsxQuoteStyle": "double",
-      "trailingCommas": "all",
       "semicolons": "asNeeded",
       "arrowParentheses": "always"
     }
   },
-  "assist": {
-    "enabled": true,
-    "actions": {
-      "source": {
-        "organizeImports": "on"
-      }
-    }
-  },
   "files": {
-    "ignore": [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/coverage/**"
-    ]
+    "ignoreUnknown": true
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
   }
 }
