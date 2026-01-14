@@ -1,0 +1,23 @@
+{
+  "name": "beskyd-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "1.4.1",
+    "better-auth": "1.4.0",
+    "beskyd": "workspace:*",
+    "elysia": "1.4.7",
+    "kysely": "0.28.8",
+    "kysely-d1": "0.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20250904.0",
+    "wrangler": "4.33.1"
+  }
+}

@@ -1,0 +1,9 @@
+name = "beskyd-api"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "beskyd"
+database_id = "ee8a9bc3-64aa-469d-bff2-fde775730053"
