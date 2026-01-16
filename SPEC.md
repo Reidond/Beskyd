@@ -473,6 +473,17 @@ Entities:
 - `/data/experts/new`
 - `/admin/model-config`
 
+### 6.4 Implementation status (2026-01-16)
+
+- `/regions` uses client-side sample rows; no API wiring or list endpoint exists for region summaries.
+- `/regions/:id` is wired to `GET /v1/results/region-risk?regionId=...`.
+- `/admin/model-config` is read-only; wired to `GET /v1/config/risk-model`, `PUT` not connected.
+- `/data/participants/new` posts to `POST /v1/assessments/participants`.
+- `/data/experts/new` posts to `POST /v1/assessments/experts`.
+- `/login` uses better-auth email sign-in, but no session validation or route protection exists; root route (`/`) always redirects to `/regions` and non-login pages render without auth checks.
+- `VITE_API_BASE_URL` is required for API + auth client base URL; no proxy is used.
+- `/v1/compute/region-risk` is not called by the UI yet.
+
 ## 7. Risks and mitigations
 
 - **Algorithm ambiguity / parameter tuning:**
